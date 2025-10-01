@@ -67,5 +67,6 @@ sealed class AppState {
     object CameraPermissionRequired : AppState()
     object Detecting : AppState()
     data class Detected(val result: DetectionResult) : AppState()
+    data class StaticImageDetected(val result: DetectionResult, val imageBitmap: Bitmap) : AppState()
     data class Error(val message: String) : AppState()
 } 

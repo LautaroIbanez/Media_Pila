@@ -1,0 +1,55 @@
+# Dataset files
+dataset/raw/*
+dataset/annotated/*
+dataset/processed/*
+
+# Pero mantener la estructura de directorios
+!dataset/raw/.gitkeep
+!dataset/annotated/.gitkeep
+!dataset/processed/.gitkeep
+
+# Archivos de configuración OK
+!dataset/*.json
+!dataset/*.txt
+!dataset/README.md
+
+# Modelos grandes
+models/*.pb
+models/*.h5
+models/*.ckpt
+models/*.pth
+
+# Modelos TFLite OK (pequeños)
+!models/*.tflite
+!models/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*.ipynb
+
+# TensorFlow
+*.tfrecord
+*.tfrecord-*
+
+# Logs
+*.log
+logs/
+tensorboard/
+
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db
+

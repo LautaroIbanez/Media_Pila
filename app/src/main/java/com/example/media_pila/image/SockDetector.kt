@@ -108,13 +108,28 @@ class SockDetector {
         val scales = listOf(1.0f, 1.5f, 2.0f)
         
         for (scale in scales) {
-            val scaledCellWidth = (cellWidth * scale).toInt()
-            val scaledCellHeight = (cellHeight * scale).toInt()
+            val scaledCellWidth = maxOf(1, (cellWidth * scale).toInt())
+            val scaledCellHeight = maxOf(1, (cellHeight * scale).toInt())
             
             println("🔍 [SockDetector] detectCandidateRegions - Scale: $scale, Cell: ${scaledCellWidth}x${scaledCellHeight}")
             
-            for (row in 0 until (height / scaledCellHeight)) {
-                for (col in 0 until (width / scaledCellWidth)) {
+            // Saltar esta escala si las dimensiones son inválidas
+            if (scaledCellWidth <= 0 || scaledCellHeight <= 0) {
+                println("🔍 [SockDetector] detectCandidateRegions - ⚠️ Saltando escala con dimensiones inválidas")
+                continue
+            }
+            
+            val numRows = height / scaledCellHeight
+            val numCols = width / scaledCellWidth
+            
+            // Validar que tengamos al menos una celda para iterar
+            if (numRows <= 0 || numCols <= 0) {
+                println("🔍 [SockDetector] detectCandidateRegions - ⚠️ No hay celdas para esta escala")
+                continue
+            }
+            
+            for (row in 0 until numRows) {
+                for (col in 0 until numCols) {
                     val left = col * scaledCellWidth
                     val top = row * scaledCellHeight
                     val right = left + scaledCellWidth
@@ -165,12 +180,21 @@ class SockDetector {
      */
     private fun isSockCandidate(bitmap: Bitmap, region: RectF): Boolean {
         try {
+            // Validar que las dimensiones de la región sean >= 1
+            val regionWidth = region.width().toInt()
+            val regionHeight = region.height().toInt()
+            
+            if (regionWidth < 1 || regionHeight < 1) {
+                println("🔍 [SockDetector] isSockCandidate - ❌ Dimensiones inválidas: ${regionWidth}x${regionHeight}")
+                return false
+            }
+            
             val croppedBitmap = Bitmap.createBitmap(
                 bitmap,
                 region.left.toInt(),
                 region.top.toInt(),
-                region.width().toInt(),
-                region.height().toInt()
+                regionWidth,
+                regionHeight
             )
             
             // Analizar paleta de colores
@@ -291,12 +315,21 @@ class SockDetector {
     private fun analyzeRegion(bitmap: Bitmap, region: RectF, frameWidth: Int, frameHeight: Int): Sock? {
         println("🔍 [SockDetector] analyzeRegion - Analizando región: (${region.left.toInt()}, ${region.top.toInt()}, ${region.width().toInt()}, ${region.height().toInt()})")
         
+        // Validar que las dimensiones sean >= 1 antes de crear bitmap
+        val regionWidth = region.width().toInt()
+        val regionHeight = region.height().toInt()
+        
+        if (regionWidth < 1 || regionHeight < 1) {
+            println("🔍 [SockDetector] analyzeRegion - ❌ Región descartada por dimensiones inválidas: ${regionWidth}x${regionHeight}")
+            return null
+        }
+        
         val croppedBitmap = Bitmap.createBitmap(
             bitmap,
             region.left.toInt(),
             region.top.toInt(),
-            region.width().toInt(),
-            region.height().toInt()
+            regionWidth,
+            regionHeight
         )
         
         val palette = Palette.from(croppedBitmap).generate()

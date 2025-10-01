@@ -1,0 +1,29 @@
+# TensorFlow y ML
+tensorflow==2.14.0
+tensorflow-hub==0.15.0
+tensorflow-datasets==4.9.3
+
+# Procesamiento de imágenes
+pillow==10.1.0
+opencv-python==4.8.1.78
+scikit-image==0.22.0
+
+# Utilidades
+numpy==1.24.3
+pandas==2.1.4
+matplotlib==3.8.2
+seaborn==0.13.0
+
+# Anotación de datos
+labelImg==1.8.6
+
+# Jupyter (opcional, para experimentación)
+jupyter==1.0.0
+notebook==7.0.6
+
+# Progress bars y logging
+tqdm==4.66.1
+
+# Validación de datos
+pyyaml==6.0.1
+

@@ -39,6 +39,7 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
     private var imageAnalyzer: ImageAnalysis? = null
     private var camera: Camera? = null
     private lateinit var cameraExecutor: ExecutorService
+    private var currentPreviewView: PreviewView? = null // Bandera para evitar reconfiguraciones
     
     // Estados
     private val _appState = MutableStateFlow<AppState>(AppState.Loading)
@@ -293,6 +294,47 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
     }
     
     /**
+     * Procesa una imagen estática para detectar medias
+     */
+    fun processStaticBitmap(bitmap: Bitmap) {
+        viewModelScope.launch {
+            try {
+                _isDetecting.value = true
+                _appState.value = AppState.Loading
+                
+                println("📸 [ViewModel] Procesando imagen estática: ${bitmap.width}x${bitmap.height}")
+                
+                // Usar el método de testeo del SockDetector
+                val result = sockDetector.testFromStaticImage(bitmap)
+                
+                _detectionResult.value = result
+                _frameWidth.value = bitmap.width
+                _frameHeight.value = bitmap.height
+                
+                // Actualizar el estado con el resultado y la imagen
+                _appState.value = AppState.StaticImageDetected(result, bitmap)
+                
+                println("📸 [ViewModel] Detección completada: ${result.socks.size} medias, ${result.pairs.size} pares")
+                
+            } catch (e: Exception) {
+                println("📸 [ViewModel] Error procesando imagen estática: ${e.message}")
+                _appState.value = AppState.Error("Error al procesar imagen: ${e.message}")
+            } finally {
+                _isDetecting.value = false
+            }
+        }
+    }
+    
+    /**
+     * Vuelve al modo de cámara desde el modo de imagen estática
+     */
+    fun returnToCamera() {
+        _detectionResult.value = null
+        _appState.value = AppState.Detecting
+        _isDetecting.value = false
+    }
+    
+    /**
      * Obtiene el ImageAnalysis para la UI
      */
     fun getImageAnalysis(): ImageAnalysis? = imageAnalyzer
@@ -301,6 +343,15 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
      * Configura la vista previa de la cámara
      */
     fun setPreviewView(previewView: PreviewView, lifecycleOwner: LifecycleOwner) {
+        // Saltar la reconfiguración si la instancia no ha cambiado
+        if (currentPreviewView === previewView && camera != null) {
+            println("📷 [ViewModel] PreviewView no ha cambiado, saltando reconfiguración")
+            return
+        }
+        
+        println("📷 [ViewModel] Configurando nueva PreviewView")
+        currentPreviewView = previewView
+        
         val context = getApplication<Application>()
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         
@@ -338,6 +389,7 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
                         preview,
                         analyzer
                     )
+                    println("📷 [ViewModel] Cámara configurada exitosamente")
                 } else {
                     _appState.value = AppState.Error("Error: ImageAnalyzer no pudo ser inicializado")
                 }

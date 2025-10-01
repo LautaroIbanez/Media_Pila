@@ -6,6 +6,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -19,15 +20,20 @@ fun CameraPreview(
 ) {
     val context = LocalContext.current
     
-    AndroidView(
-        factory = { ctx ->
-            PreviewView(ctx).apply {
-                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-            }
-        },
-        modifier = modifier.fillMaxSize(),
-        update = { previewView ->
-            onPreviewReady(previewView)
+    // Conservar la instancia del PreviewView usando remember
+    val previewView = remember {
+        PreviewView(context).apply {
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
         }
+    }
+    
+    // Invocar onPreviewReady solo cuando se crea la vista
+    LaunchedEffect(previewView) {
+        onPreviewReady(previewView)
+    }
+    
+    AndroidView(
+        factory = { previewView },
+        modifier = modifier.fillMaxSize()
     )
 } 

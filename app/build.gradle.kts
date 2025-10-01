@@ -19,6 +19,12 @@ android {
             useSupportLibrary = true
         }
     }
+    
+    // Configuración para TensorFlow Lite
+    aaptOptions {
+        noCompress("tflite")
+        noCompress("lite")
+    }
 
     buildTypes {
         release {
@@ -75,8 +81,18 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     
-    // Image processing (opcional, para mejor detección)
+    // Image processing
     implementation("androidx.palette:palette-ktx:1.0.0")
+    
+    // TensorFlow Lite para modelos ML personalizados
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-metadata:0.4.4")
+    
+    // ML Kit para detección de objetos (alternativa/complemento)
+    implementation("com.google.mlkit:object-detection:17.0.1")
+    implementation("com.google.mlkit:object-detection-custom:17.0.1")
     
     // Testing
     testImplementation(libs.junit)
