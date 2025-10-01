@@ -138,7 +138,10 @@ def generate_statistics(annotations: List[Dict]) -> Dict:
 
 def create_tf_example(annotation: Dict, class_name_to_id: Dict) -> tf.train.Example:
     """Crea un ejemplo TFRecord a partir de una anotación."""
-    img_path = Path(annotation['filename']).parent / annotation['filename']
+    # Construir ruta completa a la imagen
+    base_dir = Path(__file__).parent.parent
+    annotated_dir = base_dir / 'dataset' / 'annotated'
+    img_path = annotated_dir / annotation['filename']
     
     # Leer imagen
     with tf.io.gfile.GFile(str(img_path), 'rb') as fid:
@@ -191,11 +194,11 @@ def create_tfrecords(annotations: List[Dict], output_path: str, class_names: Lis
             tf_example = create_tf_example(annotation, class_name_to_id)
             writer.write(tf_example.SerializeToString())
     
-    print(f"   ✅ TFRecord creado: {output_path} ({len(annotations)} ejemplos)")
+    print(f"   TFRecord creado: {output_path} ({len(annotations)} ejemplos)")
 
 def main():
     """Función principal."""
-    print("🚀 Preparando dataset para entrenamiento...")
+    print("Preparando dataset para entrenamiento...")
     
     # Rutas
     base_dir = Path(__file__).parent.parent
@@ -203,43 +206,43 @@ def main():
     output_dir = base_dir / 'dataset' / 'processed'
     
     if not annotated_dir.exists():
-        print(f"❌ Error: Directorio {annotated_dir} no existe")
+        print(f"Error: Directorio {annotated_dir} no existe")
         print("   Por favor, coloca las imágenes anotadas en dataset/annotated/")
         return
     
     # Validar anotaciones
-    print("\n📝 Validando anotaciones...")
+    print("\nValidando anotaciones...")
     valid_files, invalid_files = validate_annotations(annotated_dir)
     
-    print(f"   ✅ Archivos válidos: {len(valid_files)}")
+    print(f"   Archivos validos: {len(valid_files)}")
     if invalid_files:
-        print(f"   ⚠️  Archivos inválidos: {len(invalid_files)}")
+        print(f"   Archivos invalidos: {len(invalid_files)}")
         for invalid in invalid_files[:5]:  # Mostrar primeros 5
             print(f"      - {invalid}")
         if len(invalid_files) > 5:
-            print(f"      ... y {len(invalid_files) - 5} más")
+            print(f"      ... y {len(invalid_files) - 5} mas")
     
     if len(valid_files) == 0:
-        print("❌ Error: No se encontraron archivos válidos")
+        print("Error: No se encontraron archivos validos")
         return
     
     if len(valid_files) < 100:
-        print(f"⚠️  Advertencia: Solo {len(valid_files)} imágenes. Recomendado: al menos 500")
+        print(f"Advertencia: Solo {len(valid_files)} imagenes. Recomendado: al menos 500")
     
-    # Parsear todas las anotaciones válidas
-    print("\n📊 Generando estadísticas...")
+    # Parsear todas las anotaciones validas
+    print("\nGenerando estadisticas...")
     annotations = [parse_pascal_voc(f) for f in valid_files]
     stats = generate_statistics(annotations)
     
-    print(f"   Total de imágenes: {stats['total_images']}")
+    print(f"   Total de imagenes: {stats['total_images']}")
     print(f"   Total de objetos: {stats['total_objects']}")
     print(f"   Objetos por imagen (promedio): {stats.get('avg_objects_per_image', 0):.2f}")
-    print(f"   Distribución de clases:")
+    print(f"   Distribucion de clases:")
     for class_name, count in stats['class_distribution'].items():
         print(f"      - {class_name}: {count}")
     
     # Dividir dataset
-    print("\n✂️  Dividiendo dataset...")
+    print("\nDividiendo dataset...")
     split = split_dataset(valid_files, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15)
     
     print(f"   Train: {len(split['train'])} ({len(split['train'])/len(valid_files)*100:.1f}%)")
@@ -252,7 +255,7 @@ def main():
         (output_dir / subset).mkdir(exist_ok=True)
     
     # Copiar archivos a subdirectorios
-    print("\n📁 Organizando archivos...")
+    print("\nOrganizando archivos...")
     for subset, files in split.items():
         for xml_path in files:
             xml_file = Path(xml_path)
@@ -264,7 +267,7 @@ def main():
             shutil.copy(img_file, output_dir / subset / img_file.name)
     
     # Crear TFRecords
-    print("\n📦 Creando archivos TFRecord...")
+    print("\nCreando archivos TFRecord...")
     class_names = list(stats['class_distribution'].keys())
     
     for subset, files in split.items():
@@ -289,11 +292,11 @@ def main():
     with open(info_path, 'w') as f:
         json.dump(output_info, f, indent=2)
     
-    print(f"\n✅ Dataset preparado exitosamente!")
+    print(f"\nDataset preparado exitosamente!")
     print(f"   Archivos procesados: {output_dir}")
-    print(f"   Información guardada: {info_path}")
+    print(f"   Informacion guardada: {info_path}")
     print(f"   TFRecords creados: train.record, val.record, test.record")
-    print(f"\n💡 Siguiente paso: python scripts/train_detector.py")
+    print(f"\nSiguiente paso: python scripts/train_detector.py")
 
 if __name__ == '__main__':
     main()

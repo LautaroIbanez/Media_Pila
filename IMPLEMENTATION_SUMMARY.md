@@ -100,3 +100,4 @@ Si hay problemas:
 - TensorFlow Object Detection API: https://github.com/tensorflow/models/tree/master/research/object_detection
 - TFLite Converter: https://www.tensorflow.org/lite/models/convert
 - Siamese Networks: https://keras.io/examples/vision/siamese_network/
+

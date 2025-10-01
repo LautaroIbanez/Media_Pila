@@ -1,0 +1,59 @@
+{
+  "version": "1.0.0",
+  "created_date": "2025-10-01T18:13:32.440148",
+  "created_timestamp": 1759353212,
+  "is_dummy": true,
+  "models": {
+    "detector": {
+      "name": "ssd_mobilenet_v2_fpnlite_320x320",
+      "input_size": 320,
+      "num_classes": 1,
+      "file_path": "sock_detector.tflite",
+      "file_hash": "e758cf72a0f1f070125d546b344fb36f841ec31483309ac58336843a08630dd9",
+      "file_size_bytes": 267,
+      "quantized": true,
+      "quantization_type": "dynamic",
+      "gpu_optimized": true,
+      "training_date": "2025-01-10",
+      "num_epochs": 50,
+      "learning_rate": 0.001,
+      "batch_size": 16
+    },
+    "matcher": {
+      "name": "siamese_mobilenetv2",
+      "input_size": 64,
+      "embedding_size": 128,
+      "file_path": "sock_matcher.tflite",
+      "file_hash": "5155cce82f338bdbf6f5459b6b750f058bb9142cc241cb1add2de1277d10b64b",
+      "file_size_bytes": 265,
+      "quantized": true,
+      "quantization_type": "dynamic",
+      "gpu_optimized": true,
+      "training_date": "2025-01-10",
+      "num_epochs": 30,
+      "learning_rate": 0.0001,
+      "batch_size": 32,
+      "triplet_margin": 0.5
+    }
+  },
+  "dataset_info": {
+    "total_images": 2,
+    "total_objects": 4,
+    "class_names": [
+      "sock"
+    ]
+  },
+  "export_settings": {
+    "quantize": true,
+    "quantize_full": false,
+    "optimize_gpu": true,
+    "export_date": "2025-10-01T18:13:32.440148"
+  },
+  "compatibility": {
+    "tensorflow_lite_version": "2.14.0",
+    "android_min_sdk": 21,
+    "android_target_sdk": 34,
+    "input_format": "RGB",
+    "normalization": "0-1"
+  }
+}

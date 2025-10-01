@@ -1,0 +1,5 @@
+Modelo detector dummy para demostracion
+Entrenado con 50 epocas
+Input size: 320x320
+Numero de clases: 1
+Clases: sock

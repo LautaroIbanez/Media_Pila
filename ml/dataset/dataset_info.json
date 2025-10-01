@@ -1,0 +1,30 @@
+{
+  "name": "Sock Detection Dataset",
+  "version": "1.0.0",
+  "description": "Dataset para entrenamiento de modelos de detección y emparejamiento de medias",
+  "created_date": "2025-01-10",
+  "total_images": 0,
+  "total_objects": 0,
+  "class_names": ["sock"],
+  "num_classes": 1,
+  "annotations_format": "PASCAL_VOC",
+  "image_formats": ["jpg", "jpeg", "png"],
+  "recommended_min_images": 500,
+  "recommended_min_objects": 2000,
+  "statistics": {
+    "avg_objects_per_image": 0,
+    "class_distribution": {
+      "sock": 0
+    }
+  },
+  "split": {
+    "train": 0,
+    "val": 0,
+    "test": 0
+  },
+  "tfrecord_paths": {
+    "train": "processed/train.record",
+    "val": "processed/val.record",
+    "test": "processed/test.record"
+  }
+}

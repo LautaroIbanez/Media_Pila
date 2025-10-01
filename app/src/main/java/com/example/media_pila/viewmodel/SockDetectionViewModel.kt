@@ -57,6 +57,9 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
     private val _isMlAvailable = MutableStateFlow(false)
     val isMlAvailable: StateFlow<Boolean> = _isMlAvailable.asStateFlow()
     
+    private val _mlValidationResult = MutableStateFlow<MLSockDetector.ModelValidationResult?>(null)
+    val mlValidationResult: StateFlow<MLSockDetector.ModelValidationResult?> = _mlValidationResult.asStateFlow()
+    
     private val _frameWidth = MutableStateFlow(0)
     val frameWidth: StateFlow<Int> = _frameWidth.asStateFlow()
     
@@ -65,22 +68,27 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
     
     init {
         checkCameraPermission()
-        // Inicializar ML en background
+        // Inicializar ML en background con validación mejorada
         viewModelScope.launch {
             try {
-                val available = withContext(Dispatchers.IO) { mlDetector.areModelsAvailable() }
-                if (available) {
-                    println("🤖 [ViewModel] Modelos ML detectados en assets, inicializando...")
+                val validationResult = withContext(Dispatchers.IO) { mlDetector.validateModels() }
+                _mlValidationResult.value = validationResult
+                
+                if (validationResult.isValid) {
+                    println("🤖 [ViewModel] Modelos ML válidos detectados, inicializando...")
+                    println("🤖 [ViewModel] Metadata: ${validationResult.metadata?.version}, Dummy: ${validationResult.metadata?.isDummy}")
                     withContext(Dispatchers.IO) { mlDetector.initialize() }
                     _isMlAvailable.value = true
                     println("🤖 [ViewModel] ML inicializado correctamente (GPU si disponible)")
                 } else {
-                    println("🤖 [ViewModel] Modelos ML no disponibles; usando detector heurístico de respaldo")
+                    println("🤖 [ViewModel] Modelos ML no válidos: ${validationResult.reason}")
+                    println("🤖 [ViewModel] Usando detector heurístico de respaldo")
                     _isMlAvailable.value = false
                 }
             } catch (e: Exception) {
                 println("🤖 [ViewModel] Error inicializando ML: ${e.message}. Usando fallback heurístico")
                 _isMlAvailable.value = false
+                _mlValidationResult.value = MLSockDetector.ModelValidationResult(false, "Error: ${e.message}", null)
             }
         }
     }
@@ -369,6 +377,33 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
         _detectionResult.value = null
         _appState.value = AppState.Detecting
         _isDetecting.value = false
+    }
+    
+    /**
+     * Revalida los modelos ML manualmente
+     */
+    fun revalidateModels() {
+        viewModelScope.launch {
+            try {
+                val validationResult = withContext(Dispatchers.IO) { mlDetector.validateModels() }
+                _mlValidationResult.value = validationResult
+                
+                if (validationResult.isValid && !_isMlAvailable.value) {
+                    // Si los modelos ahora son válidos pero no estaban disponibles, intentar inicializar
+                    println("🤖 [ViewModel] Modelos ahora válidos, intentando inicializar...")
+                    withContext(Dispatchers.IO) { mlDetector.initialize() }
+                    _isMlAvailable.value = true
+                } else if (!validationResult.isValid && _isMlAvailable.value) {
+                    // Si los modelos ya no son válidos pero estaban disponibles, desactivar ML
+                    println("🤖 [ViewModel] Modelos ya no válidos, desactivando ML...")
+                    _isMlAvailable.value = false
+                }
+            } catch (e: Exception) {
+                println("🤖 [ViewModel] Error revalidando modelos: ${e.message}")
+                _isMlAvailable.value = false
+                _mlValidationResult.value = MLSockDetector.ModelValidationResult(false, "Error: ${e.message}", null)
+            }
+        }
     }
     
     /**

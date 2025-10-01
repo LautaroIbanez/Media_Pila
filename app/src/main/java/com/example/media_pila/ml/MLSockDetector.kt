@@ -19,6 +19,9 @@ import java.nio.ByteOrder
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.CompatibilityList
 import org.tensorflow.lite.gpu.GpuDelegate
+import org.json.JSONObject
+import java.io.InputStream
+import java.security.MessageDigest
 
 /**
  * Detector de medias usando modelos de Machine Learning (TensorFlow Lite).
@@ -46,12 +49,56 @@ class MLSockDetector(private val context: Context) {
     companion object {
         private const val DETECTOR_MODEL_PATH = "sock_detector.tflite"
         private const val MATCHER_MODEL_PATH = "sock_matcher.tflite"
+        private const val METADATA_PATH = "model_metadata.json"
         private const val MIN_CONFIDENCE = 0.5f
         private const val INPUT_SIZE = 320 // Tamaño de entrada del detector
         private const val MATCHER_INPUT_SIZE = 64 // Tamaño de entrada del matcher
         private const val NUM_DETECTIONS = 20 // Número máximo de detecciones esperado del modelo
         private const val EMBEDDING_SIZE = 128
     }
+    
+    // Data classes para metadata
+    data class ModelMetadata(
+        val version: String,
+        val createdDate: String,
+        val isDummy: Boolean,
+        val detector: ModelInfo,
+        val matcher: ModelInfo,
+        val datasetInfo: DatasetInfo,
+        val compatibility: CompatibilityInfo
+    )
+    
+    data class ModelInfo(
+        val name: String,
+        val inputSize: Int,
+        val filePath: String,
+        val fileHash: String,
+        val fileSizeBytes: Long,
+        val quantized: Boolean,
+        val quantizationType: String,
+        val gpuOptimized: Boolean,
+        val trainingDate: String
+    )
+    
+    data class DatasetInfo(
+        val totalImages: Int,
+        val totalObjects: Int,
+        val classNames: List<String>
+    )
+    
+    data class CompatibilityInfo(
+        val tensorflowLiteVersion: String,
+        val androidMinSdk: Int,
+        val androidTargetSdk: Int,
+        val inputFormat: String,
+        val normalization: String
+    )
+    
+    data class ModelValidationResult(
+        val isValid: Boolean,
+        val reason: String,
+        val metadata: ModelMetadata?
+    )
     
     /**
      * Inicializa los modelos ML.
@@ -60,6 +107,18 @@ class MLSockDetector(private val context: Context) {
     suspend fun initialize() = withContext(Dispatchers.IO) {
         try {
             println("🤖 [MLSockDetector] Inicializando modelos ML...")
+            
+            // Validar metadata primero
+            val validationResult = validateModels()
+            if (!validationResult.isValid) {
+                println("🤖 [MLSockDetector] Validación de modelos falló: ${validationResult.reason}")
+                isInitialized = false
+                throw IllegalStateException("Modelos no válidos: ${validationResult.reason}")
+            }
+            
+            val metadata = validationResult.metadata
+            println("🤖 [MLSockDetector] Metadata validada - Versión: ${metadata?.version}, Dummy: ${metadata?.isDummy}")
+            
             val detectorModel = loadModelFromAssets(DETECTOR_MODEL_PATH)
             val matcherModel = loadModelFromAssets(MATCHER_MODEL_PATH)
             
@@ -285,19 +344,154 @@ class MLSockDetector(private val context: Context) {
     }
     
     /**
-     * Verifica si los modelos están disponibles.
+     * Verifica si los modelos están disponibles y son válidos.
      */
     fun areModelsAvailable(): Boolean {
         return try {
+            val validationResult = validateModels()
+            validationResult.isValid
+        } catch (e: Exception) {
+            println("🤖 [MLSockDetector] Error verificando disponibilidad de modelos: ${e.message}")
+            false
+        }
+    }
+    
+    /**
+     * Valida los modelos y su metadata.
+     */
+    fun validateModels(): ModelValidationResult {
+        return try {
+            // Verificar que los archivos existan
             context.assets.open(DETECTOR_MODEL_PATH).close()
             context.assets.open(MATCHER_MODEL_PATH).close()
-            true
+            context.assets.open(METADATA_PATH).close()
+            
+            // Cargar y validar metadata
+            val metadata = loadModelMetadata()
+            if (metadata == null) {
+                return ModelValidationResult(false, "No se pudo cargar metadata", null)
+            }
+            
+            // Verificar que no sean modelos dummy en producción
+            if (metadata.isDummy) {
+                return ModelValidationResult(false, "Modelos dummy detectados - no aptos para producción", metadata)
+            }
+            
+            // Verificar compatibilidad
+            if (!isCompatible(metadata.compatibility)) {
+                return ModelValidationResult(false, "Modelos no compatibles con esta versión", metadata)
+            }
+            
+            // Verificar hashes de archivos
+            val detectorHash = calculateFileHash(DETECTOR_MODEL_PATH)
+            val matcherHash = calculateFileHash(MATCHER_MODEL_PATH)
+            
+            if (detectorHash != metadata.detector.fileHash || matcherHash != metadata.matcher.fileHash) {
+                return ModelValidationResult(false, "Hashes de archivos no coinciden - modelos corruptos", metadata)
+            }
+            
+            ModelValidationResult(true, "Modelos válidos", metadata)
+            
         } catch (e: Exception) {
-            false
+            ModelValidationResult(false, "Error validando modelos: ${e.message}", null)
         }
     }
 
     // ---- Helpers de carga/preprocesamiento ----
+    
+    private fun loadModelMetadata(): ModelMetadata? {
+        return try {
+            val inputStream: InputStream = context.assets.open(METADATA_PATH)
+            val jsonString = inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(jsonString)
+            
+            val detectorJson = json.getJSONObject("models").getJSONObject("detector")
+            val matcherJson = json.getJSONObject("models").getJSONObject("matcher")
+            val datasetJson = json.getJSONObject("dataset_info")
+            val compatibilityJson = json.getJSONObject("compatibility")
+            
+            val classNamesArray = datasetJson.getJSONArray("class_names")
+            val classNames = mutableListOf<String>()
+            for (i in 0 until classNamesArray.length()) {
+                classNames.add(classNamesArray.getString(i))
+            }
+            
+            ModelMetadata(
+                version = json.getString("version"),
+                createdDate = json.getString("created_date"),
+                isDummy = json.getBoolean("is_dummy"),
+                detector = ModelInfo(
+                    name = detectorJson.getString("name"),
+                    inputSize = detectorJson.getInt("input_size"),
+                    filePath = detectorJson.getString("file_path"),
+                    fileHash = detectorJson.getString("file_hash"),
+                    fileSizeBytes = detectorJson.getLong("file_size_bytes"),
+                    quantized = detectorJson.getBoolean("quantized"),
+                    quantizationType = detectorJson.getString("quantization_type"),
+                    gpuOptimized = detectorJson.getBoolean("gpu_optimized"),
+                    trainingDate = detectorJson.getString("training_date")
+                ),
+                matcher = ModelInfo(
+                    name = matcherJson.getString("name"),
+                    inputSize = matcherJson.getInt("input_size"),
+                    filePath = matcherJson.getString("file_path"),
+                    fileHash = matcherJson.getString("file_hash"),
+                    fileSizeBytes = matcherJson.getLong("file_size_bytes"),
+                    quantized = matcherJson.getBoolean("quantized"),
+                    quantizationType = matcherJson.getString("quantization_type"),
+                    gpuOptimized = matcherJson.getBoolean("gpu_optimized"),
+                    trainingDate = matcherJson.getString("training_date")
+                ),
+                datasetInfo = DatasetInfo(
+                    totalImages = datasetJson.getInt("total_images"),
+                    totalObjects = datasetJson.getInt("total_objects"),
+                    classNames = classNames
+                ),
+                compatibility = CompatibilityInfo(
+                    tensorflowLiteVersion = compatibilityJson.getString("tensorflow_lite_version"),
+                    androidMinSdk = compatibilityJson.getInt("android_min_sdk"),
+                    androidTargetSdk = compatibilityJson.getInt("android_target_sdk"),
+                    inputFormat = compatibilityJson.getString("input_format"),
+                    normalization = compatibilityJson.getString("normalization")
+                )
+            )
+        } catch (e: Exception) {
+            println("🤖 [MLSockDetector] Error cargando metadata: ${e.message}")
+            null
+        }
+    }
+    
+    private fun isCompatible(compatibility: CompatibilityInfo): Boolean {
+        // Verificar versión mínima de Android
+        if (Build.VERSION.SDK_INT < compatibility.androidMinSdk) {
+            return false
+        }
+        
+        // Verificar formato de entrada
+        if (compatibility.inputFormat != "RGB") {
+            return false
+        }
+        
+        // Verificar normalización
+        if (compatibility.normalization != "0-1") {
+            return false
+        }
+        
+        return true
+    }
+    
+    private fun calculateFileHash(assetPath: String): String {
+        return try {
+            val inputStream: InputStream = context.assets.open(assetPath)
+            val bytes = inputStream.readBytes()
+            val digest = MessageDigest.getInstance("SHA-256")
+            val hashBytes = digest.digest(bytes)
+            hashBytes.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            println("🤖 [MLSockDetector] Error calculando hash: ${e.message}")
+            ""
+        }
+    }
 
     private fun loadModelFromAssets(assetPath: String): MappedByteBuffer {
         val assetFileDescriptor = context.assets.openFd(assetPath)

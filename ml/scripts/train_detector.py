@@ -47,17 +47,17 @@ def check_dependencies():
     """Verifica que las dependencias estén instaladas."""
     try:
         import tensorflow as tf
-        print(f"✅ TensorFlow versión: {tf.__version__}")
+        print(f"TensorFlow version: {tf.__version__}")
     except ImportError:
-        print("❌ Error: TensorFlow no está instalado")
+        print("Error: TensorFlow no esta instalado")
         print("   Instala con: pip install tensorflow==2.14.0")
         return False
     
     try:
         import tensorflow_hub as hub
-        print(f"✅ TensorFlow Hub disponible")
+        print(f"TensorFlow Hub disponible")
     except ImportError:
-        print("⚠️  Advertencia: TensorFlow Hub no disponible")
+        print("Advertencia: TensorFlow Hub no disponible")
     
     return True
 
@@ -66,7 +66,7 @@ def load_dataset_info(dataset_path: Path):
     info_path = dataset_path / 'dataset_info.json'
     
     if not info_path.exists():
-        print(f"❌ Error: {info_path} no existe")
+        print(f"Error: {info_path} no existe")
         print("   Ejecuta primero: python scripts/prepare_dataset.py")
         return None
     
@@ -286,14 +286,14 @@ item {{
 
 def train_detector(args, dataset_info):
     """Entrena el modelo detector usando TensorFlow Object Detection API."""
-    print("\n🏋️  Entrenando modelo detector...")
-    print(f"   Configuración:")
+    print("\nEntrenando modelo detector...")
+    print(f"   Configuracion:")
     print(f"      - Modelo: SSD MobileNet V2 FPNLite")
-    print(f"      - Tamaño de entrada: {args.input_size}x{args.input_size}")
-    print(f"      - Número de clases: {dataset_info['num_classes']}")
+    print(f"      - Tamano de entrada: {args.input_size}x{args.input_size}")
+    print(f"      - Numero de clases: {dataset_info['num_classes']}")
     print(f"      - Batch size: {args.batch_size}")
     print(f"      - Learning rate: {args.learning_rate}")
-    print(f"      - Épocas: {args.num_epochs}")
+    print(f"      - Epocas: {args.num_epochs}")
     
     # Crear directorio de salida
     output_dir = Path(args.output_dir)
@@ -311,13 +311,13 @@ def train_detector(args, dataset_info):
     with open(label_map_path, 'w') as f:
         f.write(label_map_text)
     
-    print(f"   ✅ Configuración guardada: {config_path}")
-    print(f"   ✅ Label map guardado: {label_map_path}")
+    print(f"   Configuracion guardada: {config_path}")
+    print(f"   Label map guardado: {label_map_path}")
     
     # Configurar TensorFlow
     tf.config.run_functions_eagerly(True)
     
-    # Cargar configuración
+    # Cargar configuracion
     configs = config_util.get_configs_from_pipeline_file(str(config_path))
     model_config = configs['model']
     train_config = configs['train_config']
@@ -329,9 +329,9 @@ def train_detector(args, dataset_info):
     # Crear dataset
     def create_dataset():
         dataset = tf.data.TFRecordDataset(train_input_reader.tf_record_input_reader.input_path)
-        # Aquí iría el parsing del dataset, pero es complejo
+        # Aqui iria el parsing del dataset, pero es complejo
         # Para simplificar, creamos un dataset dummy
-        return dataset.take(100)  # Solo para demostración
+        return dataset.take(100)  # Solo para demostracion
     
     # Configurar callbacks
     callbacks = [
@@ -346,8 +346,8 @@ def train_detector(args, dataset_info):
         )
     ]
     
-    print("   🚀 Iniciando entrenamiento...")
-    print("   ⚠️  NOTA: Este es un entrenamiento simulado.")
+    print("   Iniciando entrenamiento...")
+    print("   NOTA: Este es un entrenamiento simulado.")
     print("   Para entrenamiento real, necesitas:")
     print("   1. Instalar TensorFlow Object Detection API")
     print("   2. Configurar el dataset parser correctamente")
@@ -355,11 +355,11 @@ def train_detector(args, dataset_info):
     
     # Simular entrenamiento
     import time
-    for epoch in range(min(3, args.num_epochs)):  # Solo 3 épocas para demo
-        print(f"   Época {epoch + 1}/{args.num_epochs}...")
+    for epoch in range(min(3, args.num_epochs)):  # Solo 3 epocas para demo
+        print(f"   Epoca {epoch + 1}/{args.num_epochs}...")
         time.sleep(1)  # Simular tiempo de entrenamiento
     
-    print("   ✅ Entrenamiento completado (simulado)")
+    print("   Entrenamiento completado (simulado)")
     
     # Crear modelo dummy para exportación
     dummy_model_path = output_dir / 'saved_model'
@@ -375,7 +375,7 @@ def main():
     """Función principal."""
     args = parse_args()
     
-    print("🚀 Iniciando entrenamiento del detector de medias...")
+    print("Iniciando entrenamiento del detector de medias...")
     
     # Verificar dependencias
     if not check_dependencies():
@@ -384,19 +384,19 @@ def main():
     # Verificar dataset
     dataset_path = Path(args.dataset_path)
     if not dataset_path.exists():
-        print(f"❌ Error: {dataset_path} no existe")
+        print(f"Error: {dataset_path} no existe")
         print("   Ejecuta primero: python scripts/prepare_dataset.py")
         return
     
-    # Cargar información del dataset
+    # Cargar informacion del dataset
     dataset_info = load_dataset_info(dataset_path)
     if dataset_info is None:
         return
     
-    print(f"\n📊 Dataset:")
-    print(f"   Train: {dataset_info['split']['train']} imágenes")
-    print(f"   Val:   {dataset_info['split']['val']} imágenes")
-    print(f"   Test:  {dataset_info['split']['test']} imágenes")
+    print(f"\nDataset:")
+    print(f"   Train: {dataset_info['split']['train']} imagenes")
+    print(f"   Val:   {dataset_info['split']['val']} imagenes")
+    print(f"   Test:  {dataset_info['split']['test']} imagenes")
     print(f"   Clases: {', '.join(dataset_info['class_names'])}")
     
     # Crear directorio de salida
@@ -407,14 +407,14 @@ def main():
     success = train_detector(args, dataset_info)
     
     if success:
-        # Guardar configuración
+        # Guardar configuracion
         config = create_model_config(args, dataset_info)
         config_path = output_dir / 'detector_config.json'
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=2)
         
-        print(f"\n✅ Configuración guardada: {config_path}")
-        print(f"\n💡 Siguiente paso: python scripts/export_to_tflite.py")
+        print(f"\nConfiguracion guardada: {config_path}")
+        print(f"\nSiguiente paso: python scripts/export_to_tflite.py")
 
 if __name__ == '__main__':
     main()

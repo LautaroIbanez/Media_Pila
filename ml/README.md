@@ -114,11 +114,19 @@ Este script:
 
 ### 4. Entrenamiento del Detector
 
-El detector usa **TensorFlow Object Detection API** con MobileNetV2 como backbone:
+**Versión Simplificada (Recomendada para Demostración):**
+```bash
+python scripts/train_detector_simple.py \
+    --dataset_path dataset/processed \
+    --output_dir models/ \
+    --num_epochs 50 \
+    --batch_size 16
+```
 
+**Versión Completa (Requiere TensorFlow Object Detection API):**
 ```bash
 python scripts/train_detector.py \
-    --dataset_path dataset/annotated \
+    --dataset_path dataset/processed \
     --output_dir models/ \
     --num_epochs 50 \
     --batch_size 16
@@ -128,17 +136,25 @@ python scripts/train_detector.py \
 - `--num_epochs`: Número de épocas de entrenamiento (default: 50)
 - `--batch_size`: Tamaño del batch (default: 16)
 - `--learning_rate`: Tasa de aprendizaje (default: 0.001)
-- `--pretrained`: Usar pesos pre-entrenados de COCO (default: True)
+- `--input_size`: Tamaño de entrada (default: 320)
 
 **Modelo recomendado:** SSD MobileNet V2 FPNLite 320x320
 
 ### 5. Entrenamiento del Modelo de Similitud
 
-El matcher usa una red siamesa para comparar medias:
+**Versión Simplificada (Recomendada para Demostración):**
+```bash
+python scripts/train_matcher_simple.py \
+    --dataset_path dataset/processed \
+    --output_dir models/ \
+    --num_epochs 30 \
+    --embedding_size 128
+```
 
+**Versión Completa:**
 ```bash
 python scripts/train_matcher.py \
-    --dataset_path dataset/annotated \
+    --dataset_path dataset/processed \
     --output_dir models/ \
     --num_epochs 30 \
     --embedding_size 128
@@ -155,52 +171,100 @@ python scripts/train_matcher.py \
 Convierte los modelos a TFLite para uso en Android:
 
 ```bash
-python scripts/export_to_tflite.py \
-    --model_path models/sock_detector.pb \
-    --output_path models/sock_detector.tflite \
-    --quantize
+python scripts/export_to_tflite_simple.py \
+    --detector_path models/saved_model \
+    --matcher_path models/matcher_saved_model \
+    --quantize \
+    --optimize_gpu
 ```
 
 **Opciones de cuantización:**
 - `--quantize`: Cuantización post-entrenamiento (reduce tamaño ~4x)
 - `--quantize_full`: Cuantización completa int8 (mejor rendimiento en móviles)
+- `--optimize_gpu`: Optimización para GPU delegate
+
+**Metadata de Modelos:**
+El script genera automáticamente `model_metadata.json` con información completa sobre los modelos, incluyendo:
+- Versión y fecha de creación
+- Hashes SHA256 para verificación de integridad
+- Configuración de cuantización y optimización
+- Información de compatibilidad
+- Metadatos del dataset de entrenamiento
 
 ### 7. Integración en la App Android
 
 Una vez que tengas los modelos `.tflite`:
 
-1. Copia los modelos a `app/src/main/assets/`:
+1. Copia los modelos y metadata a `app/src/main/assets/`:
 ```bash
 cp models/sock_detector.tflite ../app/src/main/assets/
 cp models/sock_matcher.tflite ../app/src/main/assets/
+cp models/model_metadata.json ../app/src/main/assets/
 ```
 
-2. Actualiza las dependencias en `app/build.gradle.kts`:
+2. Las dependencias ya están configuradas en `app/build.gradle.kts`:
 ```kotlin
 dependencies {
     // TensorFlow Lite
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
-    
-    // ML Kit (alternativa)
-    implementation("com.google.mlkit:object-detection:17.0.1")
-    implementation("com.google.mlkit:object-detection-custom:17.0.1")
 }
 ```
 
-3. Crea un wrapper para los modelos en `app/src/main/java/com/example/media_pila/ml/`:
-```kotlin
-class MLSockDetector(context: Context) {
-    private val detector = // Cargar modelo detector
-    private val matcher = // Cargar modelo matcher
-    
-    suspend fun detectSocks(bitmap: Bitmap): List<Sock>
-    suspend fun matchSocks(sock1: Sock, sock2: Sock): Float
+3. El `MLSockDetector` ya está implementado con validación automática de modelos.
+
+### 8. Validación de Modelos y Fallback Automático
+
+El sistema incluye validación automática de modelos con fallback al detector heurístico:
+
+**Validaciones Automáticas:**
+- Verificación de existencia de archivos de modelo
+- Validación de metadata JSON
+- Verificación de hashes SHA256 para integridad
+- Detección de modelos dummy (no aptos para producción)
+- Verificación de compatibilidad con la versión de Android
+
+**Comportamiento del Sistema:**
+1. Al inicializar, `SockDetectionViewModel` valida automáticamente los modelos
+2. Si los modelos son válidos, se usa `MLSockDetector`
+3. Si los modelos no son válidos o son dummy, se usa `SockDetector` (heurístico)
+4. El usuario puede revalidar manualmente con `revalidateModels()`
+
+**Formato de Metadata (`model_metadata.json`):**
+```json
+{
+  "version": "1.0.0",
+  "created_date": "2025-01-10T18:00:00",
+  "is_dummy": false,
+  "models": {
+    "detector": {
+      "name": "ssd_mobilenet_v2_fpnlite_320x320",
+      "input_size": 320,
+      "file_hash": "sha256_hash_here",
+      "quantized": true,
+      "quantization_type": "dynamic"
+    },
+    "matcher": {
+      "name": "siamese_mobilenetv2",
+      "input_size": 64,
+      "embedding_size": 128,
+      "file_hash": "sha256_hash_here"
+    }
+  },
+  "compatibility": {
+    "tensorflow_lite_version": "2.14.0",
+    "android_min_sdk": 21,
+    "input_format": "RGB",
+    "normalization": "0-1"
+  }
 }
 ```
 
-4. Reemplaza o complementa `SockDetector` con `MLSockDetector` en `SockDetectionViewModel`.
+**Para QA y Release:**
+- Los modelos marcados como `"is_dummy": true` serán rechazados automáticamente
+- Solo modelos con `"is_dummy": false` y hashes válidos se usarán en producción
+- El sistema registra la razón del rechazo en los logs para debugging
 
 ## Métricas de Evaluación
 

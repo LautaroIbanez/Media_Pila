@@ -1,0 +1,5 @@
+Modelo matcher dummy para demostracion
+Entrenado con 30 epocas
+Embedding size: 128
+Input size: 64x64
+Triplet margin: 0.5
