@@ -288,3 +288,4 @@ augmentation_config = {
 
 **Nota:** El entrenamiento de modelos ML requiere tiempo y recursos computacionales. Se recomienda usar GPU para entrenamientos largos. Puedes usar Google Colab para acceso gratuito a GPUs.
 
+

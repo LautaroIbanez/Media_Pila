@@ -27,3 +27,4 @@ tqdm==4.66.1
 # Validación de datos
 pyyaml==6.0.1
 
+
