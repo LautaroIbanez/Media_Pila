@@ -90,6 +90,7 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-metadata:0.4.4")
+    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.14.0")
     
     // ML Kit para detección de objetos (alternativa/complemento)
     implementation("com.google.mlkit:object-detection:17.0.1")
