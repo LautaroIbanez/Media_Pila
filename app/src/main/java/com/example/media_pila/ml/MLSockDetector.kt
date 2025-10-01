@@ -38,7 +38,8 @@ class MLSockDetector(private val context: Context) {
     
     private var detectorInterpreter: Interpreter? = null
     private var matcherInterpreter: Interpreter? = null
-    private var gpuDelegate: GpuDelegate? = null
+    private var detectorDelegate: GpuDelegate? = null
+    private var matcherDelegate: GpuDelegate? = null
     
     private var isInitialized = false
     
@@ -62,22 +63,29 @@ class MLSockDetector(private val context: Context) {
             val detectorModel = loadModelFromAssets(DETECTOR_MODEL_PATH)
             val matcherModel = loadModelFromAssets(MATCHER_MODEL_PATH)
             
-            val options = Interpreter.Options().apply {
+            val detectorOptions = Interpreter.Options().apply {
                 setNumThreads(Runtime.getRuntime().availableProcessors().coerceAtMost(4))
             }
+            val matcherOptions = Interpreter.Options().apply {
+                setNumThreads((Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1))
+            }
             
-            // Intentar usar GPU delegate si está disponible
+            // Intentar usar GPU delegate para cada intérprete si está disponible
             val compatList = CompatibilityList()
             if (compatList.isDelegateSupportedOnThisDevice) {
-                gpuDelegate = GpuDelegate(compatList.bestOptionsForThisDevice)
-                gpuDelegate?.let { options.addDelegate(it) }
-                println("🤖 [MLSockDetector] GPU Delegate habilitado")
+                detectorDelegate = GpuDelegate(compatList.bestOptionsForThisDevice)
+                detectorDelegate?.let { detectorOptions.addDelegate(it) }
+                matcherDelegate = GpuDelegate(compatList.bestOptionsForThisDevice)
+                matcherDelegate?.let { matcherOptions.addDelegate(it) }
+                println("🤖 [MLSockDetector] GPU Delegate habilitado para detector y matcher")
             } else {
                 println("🤖 [MLSockDetector] GPU Delegate no soportado, usando CPU")
             }
             
-            detectorInterpreter = Interpreter(detectorModel, options)
-            matcherInterpreter = Interpreter(matcherModel, options)
+            detectorInterpreter = Interpreter(detectorModel, detectorOptions)
+            println("🤖 [MLSockDetector] Detector inicializado (threads=${detectorOptions.numThreads})")
+            matcherInterpreter = Interpreter(matcherModel, matcherOptions)
+            println("🤖 [MLSockDetector] Matcher inicializado (threads=${matcherOptions.numThreads})")
             
             isInitialized = true
             println("🤖 [MLSockDetector] Modelos cargados exitosamente")
@@ -257,9 +265,22 @@ class MLSockDetector(private val context: Context) {
      * Libera recursos de los modelos.
      */
     fun close() {
-        detectorInterpreter?.close()
-        matcherInterpreter?.close()
-        gpuDelegate?.close()
+        try {
+            detectorInterpreter?.close()
+        } catch (_: Exception) {}
+        try {
+            matcherInterpreter?.close()
+        } catch (_: Exception) {}
+        try {
+            detectorDelegate?.close()
+        } catch (_: Exception) {}
+        try {
+            matcherDelegate?.close()
+        } catch (_: Exception) {}
+        detectorInterpreter = null
+        matcherInterpreter = null
+        detectorDelegate = null
+        matcherDelegate = null
         isInitialized = false
     }
     

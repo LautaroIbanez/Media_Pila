@@ -24,10 +24,13 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.viewModelScope
 import com.example.media_pila.data.*
 import com.example.media_pila.image.SockDetector
+import com.example.media_pila.ml.MLSockDetector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
@@ -36,6 +39,7 @@ import java.util.concurrent.Executors
 class SockDetectionViewModel(application: Application) : AndroidViewModel(application) {
     
     private val sockDetector = SockDetector()
+    private val mlDetector = MLSockDetector(application)
     private var imageAnalyzer: ImageAnalysis? = null
     private var camera: Camera? = null
     private lateinit var cameraExecutor: ExecutorService
@@ -50,6 +54,8 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
     
     private val _isDetecting = MutableStateFlow(false)
     val isDetecting: StateFlow<Boolean> = _isDetecting.asStateFlow()
+    private val _isMlAvailable = MutableStateFlow(false)
+    val isMlAvailable: StateFlow<Boolean> = _isMlAvailable.asStateFlow()
     
     private val _frameWidth = MutableStateFlow(0)
     val frameWidth: StateFlow<Int> = _frameWidth.asStateFlow()
@@ -60,6 +66,24 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
     init {
         cameraExecutor = Executors.newSingleThreadExecutor()
         checkCameraPermission()
+        // Inicializar ML en background
+        viewModelScope.launch {
+            try {
+                val available = withContext(Dispatchers.IO) { mlDetector.areModelsAvailable() }
+                if (available) {
+                    println("🤖 [ViewModel] Modelos ML detectados en assets, inicializando...")
+                    withContext(Dispatchers.IO) { mlDetector.initialize() }
+                    _isMlAvailable.value = true
+                    println("🤖 [ViewModel] ML inicializado correctamente (GPU si disponible)")
+                } else {
+                    println("🤖 [ViewModel] Modelos ML no disponibles; usando detector heurístico de respaldo")
+                    _isMlAvailable.value = false
+                }
+            } catch (e: Exception) {
+                println("🤖 [ViewModel] Error inicializando ML: ${e.message}. Usando fallback heurístico")
+                _isMlAvailable.value = false
+            }
+        }
     }
     
     /**
@@ -233,11 +257,20 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
                 try {
                     _isDetecting.value = true
                     
-                    val result = sockDetector.detectSocks(
-                        bitmap = bitmap,
-                        frameWidth = width,
-                        frameHeight = height
-                    )
+                    val result = if (isMlAvailable.value) {
+                        println("🤖 [ViewModel] Usando MLSockDetector para inferencia")
+                        mlDetector.detectSocks(
+                            bitmap = bitmap,
+                            frameWidth = width,
+                            frameHeight = height
+                        )
+                    } else {
+                        sockDetector.detectSocks(
+                            bitmap = bitmap,
+                            frameWidth = width,
+                            frameHeight = height
+                        )
+                    }
                     
                     _detectionResult.value = result
                     
@@ -304,8 +337,13 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
                 
                 println("📸 [ViewModel] Procesando imagen estática: ${bitmap.width}x${bitmap.height}")
                 
-                // Usar el método de testeo del SockDetector
-                val result = sockDetector.testFromStaticImage(bitmap)
+                val result = if (isMlAvailable.value) {
+                    println("🤖 [ViewModel] Usando MLSockDetector en imagen estática")
+                    mlDetector.detectSocks(bitmap, bitmap.width, bitmap.height)
+                } else {
+                    // Usar el método de testeo del SockDetector
+                    sockDetector.testFromStaticImage(bitmap)
+                }
                 
                 _detectionResult.value = result
                 _frameWidth.value = bitmap.width
@@ -404,5 +442,9 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
     override fun onCleared() {
         super.onCleared()
         cameraExecutor.shutdown()
+        try {
+            mlDetector.close()
+            println("🤖 [ViewModel] MLSockDetector cerrado correctamente")
+        } catch (_: Exception) { }
     }
 } 
