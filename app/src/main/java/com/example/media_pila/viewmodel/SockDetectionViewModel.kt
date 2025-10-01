@@ -42,7 +42,7 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
     private val mlDetector = MLSockDetector(application)
     private var imageAnalyzer: ImageAnalysis? = null
     private var camera: Camera? = null
-    private lateinit var cameraExecutor: ExecutorService
+    private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var currentPreviewView: PreviewView? = null // Bandera para evitar reconfiguraciones
     
     // Estados
@@ -64,7 +64,6 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
     val frameHeight: StateFlow<Int> = _frameHeight.asStateFlow()
     
     init {
-        cameraExecutor = Executors.newSingleThreadExecutor()
         checkCameraPermission()
         // Inicializar ML en background
         viewModelScope.launch {
@@ -284,7 +283,7 @@ class SockDetectionViewModel(application: Application) : AndroidViewModel(applic
                     _isDetecting.value = false
                     // ✅ Limpiar el bitmap después de usarlo (solo si es un Bitmap válido)
                     try {
-                        if (bitmap != null && !bitmap.isRecycled) {
+                        if (!bitmap.isRecycled) {
                             bitmap.recycle()
                         }
                     } catch (e: Exception) {
