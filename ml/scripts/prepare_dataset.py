@@ -15,6 +15,9 @@ from typing import List, Dict, Tuple
 import shutil
 from collections import defaultdict
 import random
+import tensorflow as tf
+from PIL import Image
+import numpy as np
 
 def parse_pascal_voc(xml_path: str) -> Dict:
     """Parse anotación en formato PASCAL VOC."""
@@ -133,6 +136,63 @@ def generate_statistics(annotations: List[Dict]) -> Dict:
     
     return stats
 
+def create_tf_example(annotation: Dict, class_name_to_id: Dict) -> tf.train.Example:
+    """Crea un ejemplo TFRecord a partir de una anotación."""
+    img_path = Path(annotation['filename']).parent / annotation['filename']
+    
+    # Leer imagen
+    with tf.io.gfile.GFile(str(img_path), 'rb') as fid:
+        encoded_image = fid.read()
+    
+    # Obtener dimensiones
+    width = annotation['width']
+    height = annotation['height']
+    
+    # Preparar datos de objetos
+    xmins = []
+    xmaxs = []
+    ymins = []
+    ymaxs = []
+    classes_text = []
+    classes = []
+    
+    for obj in annotation['objects']:
+        xmins.append(obj['xmin'] / width)
+        xmaxs.append(obj['xmax'] / width)
+        ymins.append(obj['ymin'] / height)
+        ymaxs.append(obj['ymax'] / height)
+        classes_text.append(obj['name'].encode('utf8'))
+        classes.append(class_name_to_id[obj['name']])
+    
+    # Crear ejemplo TFRecord
+    tf_example = tf.train.Example(features=tf.train.Features(feature={
+        'image/height': tf.train.Feature(int64_list=tf.train.Int64List(value=[height])),
+        'image/width': tf.train.Feature(int64_list=tf.train.Int64List(value=[width])),
+        'image/filename': tf.train.Feature(bytes_list=tf.train.BytesList(value=[annotation['filename'].encode('utf8')])),
+        'image/source_id': tf.train.Feature(bytes_list=tf.train.BytesList(value=[annotation['filename'].encode('utf8')])),
+        'image/encoded': tf.train.Feature(bytes_list=tf.train.BytesList(value=[encoded_image])),
+        'image/format': tf.train.Feature(bytes_list=tf.train.BytesList(value=[b'jpg'])),
+        'image/object/bbox/xmin': tf.train.Feature(float_list=tf.train.FloatList(value=xmins)),
+        'image/object/bbox/xmax': tf.train.Feature(float_list=tf.train.FloatList(value=xmaxs)),
+        'image/object/bbox/ymin': tf.train.Feature(float_list=tf.train.FloatList(value=ymins)),
+        'image/object/bbox/ymax': tf.train.Feature(float_list=tf.train.FloatList(value=ymaxs)),
+        'image/object/class/text': tf.train.Feature(bytes_list=tf.train.BytesList(value=classes_text)),
+        'image/object/class/label': tf.train.Feature(int64_list=tf.train.Int64List(value=classes)),
+    }))
+    
+    return tf_example
+
+def create_tfrecords(annotations: List[Dict], output_path: str, class_names: List[str]):
+    """Crea archivos TFRecord a partir de anotaciones."""
+    class_name_to_id = {name: i + 1 for i, name in enumerate(class_names)}
+    
+    with tf.io.TFRecordWriter(output_path) as writer:
+        for annotation in annotations:
+            tf_example = create_tf_example(annotation, class_name_to_id)
+            writer.write(tf_example.SerializeToString())
+    
+    print(f"   ✅ TFRecord creado: {output_path} ({len(annotations)} ejemplos)")
+
 def main():
     """Función principal."""
     print("🚀 Preparando dataset para entrenamiento...")
@@ -203,12 +263,26 @@ def main():
             shutil.copy(xml_file, output_dir / subset / xml_file.name)
             shutil.copy(img_file, output_dir / subset / img_file.name)
     
+    # Crear TFRecords
+    print("\n📦 Creando archivos TFRecord...")
+    class_names = list(stats['class_distribution'].keys())
+    
+    for subset, files in split.items():
+        subset_annotations = [parse_pascal_voc(f) for f in files]
+        tfrecord_path = output_dir / f'{subset}.record'
+        create_tfrecords(subset_annotations, str(tfrecord_path), class_names)
+    
     # Guardar estadísticas y configuración
     output_info = {
         'statistics': {k: v for k, v in stats.items() if k != 'bbox_sizes'},
         'split': {k: len(v) for k, v in split.items()},
-        'class_names': list(stats['class_distribution'].keys()),
-        'num_classes': len(stats['class_distribution'])
+        'class_names': class_names,
+        'num_classes': len(class_names),
+        'tfrecord_paths': {
+            'train': str(output_dir / 'train.record'),
+            'val': str(output_dir / 'val.record'),
+            'test': str(output_dir / 'test.record')
+        }
     }
     
     info_path = output_dir / 'dataset_info.json'
@@ -218,6 +292,7 @@ def main():
     print(f"\n✅ Dataset preparado exitosamente!")
     print(f"   Archivos procesados: {output_dir}")
     print(f"   Información guardada: {info_path}")
+    print(f"   TFRecords creados: train.record, val.record, test.record")
     print(f"\n💡 Siguiente paso: python scripts/train_detector.py")
 
 if __name__ == '__main__':

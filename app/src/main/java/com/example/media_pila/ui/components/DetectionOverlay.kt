@@ -12,29 +12,24 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.media_pila.data.DetectionResult
 import com.example.media_pila.data.Sock
 import com.example.media_pila.data.SockPair
+import kotlin.math.roundToInt
 
 @Composable
 fun DetectionOverlay(
     detectionResult: DetectionResult?,
     modifier: Modifier = Modifier
 ) {
-    // Dibujar siempre, incluso si no hay pares, para mostrar medias individuales
     if (detectionResult == null) return
     
-    // Colores para los pares (cíclicos)
-    val pairColors = remember {
-        listOf(
-            Color.Green,
-            Color.Cyan,
-            Color.Magenta,
-            Color.Yellow,
-            Color.Red
-        )
+    // Generar numeración estable por color/par
+    val sockNumbering = remember(detectionResult) {
+        generateStableNumbering(detectionResult)
     }
     
     Canvas(
@@ -43,44 +38,87 @@ fun DetectionOverlay(
         val canvasWidth = size.width
         val canvasHeight = size.height
         
-        // Dibujar todas las medias detectadas (verde)
-        detectionResult.socks.forEach { sock ->
-            drawSockBoundingBox(
-                sock = sock,
-                canvasWidth = canvasWidth,
-                canvasHeight = canvasHeight,
-                color = Color.Green,
-                label = "${sock.colorName} (${(sock.confidence * 100).toInt()}%)"
-            )
-        }
+        // Obtener medias que ya están emparejadas para evitar duplicados
+        val pairedSockIds = detectionResult.pairs.flatMap { pair ->
+            listOf(pair.sock1.id, pair.sock2.id)
+        }.toSet()
         
-        // Dibujar pares con colores distintos y líneas de conexión
-        detectionResult.pairs.forEachIndexed { index, pair ->
-            val color = pairColors[index % pairColors.size]
-            val matchPercentage = (pair.matchConfidence * 100).toInt()
+        // Dibujar medias individuales (no emparejadas) con su color dominante
+        detectionResult.socks
+            .filter { sock -> !pairedSockIds.contains(sock.id) }
+            .forEach { sock ->
+                val sockColor = Color(sock.dominantColor).copy(alpha = 0.8f)
+                val sockNumber = sockNumbering[sock.id] ?: 1
+                val label = "Media ${sock.colorName} $sockNumber (${(sock.confidence * 100).roundToInt()}%)"
+                
+                drawSockBoundingBox(
+                    sock = sock,
+                    canvasWidth = canvasWidth,
+                    canvasHeight = canvasHeight,
+                    color = sockColor,
+                    label = label
+                )
+            }
+        
+        // Dibujar pares con colores derivados del color dominante
+        detectionResult.pairs.forEachIndexed { pairIndex, pair ->
+            // Usar el color dominante de la primera media del par como base
+            val baseColor = Color(pair.sock1.dominantColor)
+            val pairColor = baseColor.copy(alpha = 0.8f)
+            
+            val matchPercentage = (pair.matchConfidence * 100).roundToInt()
+            val pairNumber = pairIndex + 1
+            
+            // Obtener números de las medias del par
+            val sock1Number = sockNumbering[pair.sock1.id] ?: 1
+            val sock2Number = sockNumbering[pair.sock2.id] ?: 2
             
             // Dibujar bounding box para sock1 del par
+            val label1 = "Media ${pair.sock1.colorName} $sock1Number similitud ${matchPercentage}%"
             drawSockBoundingBox(
                 sock = pair.sock1,
                 canvasWidth = canvasWidth,
                 canvasHeight = canvasHeight,
-                color = color,
-                label = "Match: ${matchPercentage}%"
+                color = pairColor,
+                label = label1
             )
             
             // Dibujar bounding box para sock2 del par
+            val label2 = "Media ${pair.sock2.colorName} $sock2Number similitud ${matchPercentage}%"
             drawSockBoundingBox(
                 sock = pair.sock2,
                 canvasWidth = canvasWidth,
                 canvasHeight = canvasHeight,
-                color = color,
-                label = "Match: ${matchPercentage}%"
+                color = pairColor,
+                label = label2
             )
             
             // Dibujar línea de conexión entre pares
-            drawPairConnection(pair, canvasWidth, canvasHeight, color)
+            drawPairConnection(pair, canvasWidth, canvasHeight, pairColor)
         }
     }
+}
+
+/**
+ * Genera numeración estable por color/par para las medias detectadas.
+ * Las medias del mismo color tendrán números consecutivos.
+ */
+private fun generateStableNumbering(detectionResult: DetectionResult): Map<String, Int> {
+    val numbering = mutableMapOf<String, Int>()
+    
+    // Agrupar medias por color
+    val socksByColor = detectionResult.socks.groupBy { it.colorName }
+    
+    var currentNumber = 1
+    
+    // Asignar números por color, manteniendo orden estable
+    socksByColor.toSortedMap().forEach { (colorName, socks) ->
+        socks.sortedBy { it.id }.forEach { sock ->
+            numbering[sock.id] = currentNumber++
+        }
+    }
+    
+    return numbering
 }
 
 private fun DrawScope.drawSockBoundingBox(
