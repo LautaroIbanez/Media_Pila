@@ -3,12 +3,22 @@ package com.example.media_pila.ml
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
+import android.graphics.Color
+import android.os.Build
+import androidx.palette.graphics.Palette
 import com.example.media_pila.data.Sock
 import com.example.media_pila.data.DetectionResult
 import com.example.media_pila.data.SockPair
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.*
+import java.nio.MappedByteBuffer
+import java.nio.channels.FileChannel
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.CompatibilityList
+import org.tensorflow.lite.gpu.GpuDelegate
 
 /**
  * Detector de medias usando modelos de Machine Learning (TensorFlow Lite).
@@ -26,9 +36,9 @@ import java.util.*
  */
 class MLSockDetector(private val context: Context) {
     
-    // TODO: Cargar modelos TFLite desde assets
-    // private var detectorInterpreter: Interpreter? = null
-    // private var matcherInterpreter: Interpreter? = null
+    private var detectorInterpreter: Interpreter? = null
+    private var matcherInterpreter: Interpreter? = null
+    private var gpuDelegate: GpuDelegate? = null
     
     private var isInitialized = false
     
@@ -36,7 +46,10 @@ class MLSockDetector(private val context: Context) {
         private const val DETECTOR_MODEL_PATH = "sock_detector.tflite"
         private const val MATCHER_MODEL_PATH = "sock_matcher.tflite"
         private const val MIN_CONFIDENCE = 0.5f
-        private const val INPUT_SIZE = 320 // Tamaño de entrada del modelo
+        private const val INPUT_SIZE = 320 // Tamaño de entrada del detector
+        private const val MATCHER_INPUT_SIZE = 64 // Tamaño de entrada del matcher
+        private const val NUM_DETECTIONS = 20 // Número máximo de detecciones esperado del modelo
+        private const val EMBEDDING_SIZE = 128
     }
     
     /**
@@ -46,21 +59,25 @@ class MLSockDetector(private val context: Context) {
     suspend fun initialize() = withContext(Dispatchers.IO) {
         try {
             println("🤖 [MLSockDetector] Inicializando modelos ML...")
-            
-            // TODO: Implementar carga de modelos
-            /*
-            val detectorModel = loadModelFile(DETECTOR_MODEL_PATH)
-            val matcherModel = loadModelFile(MATCHER_MODEL_PATH)
+            val detectorModel = loadModelFromAssets(DETECTOR_MODEL_PATH)
+            val matcherModel = loadModelFromAssets(MATCHER_MODEL_PATH)
             
             val options = Interpreter.Options().apply {
-                // Usar GPU delegate para mejor rendimiento
-                addDelegate(GpuDelegate())
-                setNumThreads(4)
+                setNumThreads(Runtime.getRuntime().availableProcessors().coerceAtMost(4))
+            }
+            
+            // Intentar usar GPU delegate si está disponible
+            val compatList = CompatibilityList()
+            if (compatList.isDelegateSupportedOnThisDevice) {
+                gpuDelegate = GpuDelegate(compatList.bestOptionsForThisDevice)
+                gpuDelegate?.let { options.addDelegate(it) }
+                println("🤖 [MLSockDetector] GPU Delegate habilitado")
+            } else {
+                println("🤖 [MLSockDetector] GPU Delegate no soportado, usando CPU")
             }
             
             detectorInterpreter = Interpreter(detectorModel, options)
             matcherInterpreter = Interpreter(matcherModel, options)
-            */
             
             isInitialized = true
             println("🤖 [MLSockDetector] Modelos cargados exitosamente")
@@ -84,68 +101,64 @@ class MLSockDetector(private val context: Context) {
         val startTime = System.currentTimeMillis()
         
         println("🤖 [MLSockDetector] Detectando medias con ML...")
-        
-        // TODO: Implementar inferencia con el modelo detector
-        /*
         // 1. Preprocesar imagen
         val inputBitmap = Bitmap.createScaledBitmap(bitmap, INPUT_SIZE, INPUT_SIZE, true)
-        val inputBuffer = preprocessImage(inputBitmap)
+        val inputBuffer = preprocessImageRGB(inputBitmap, INPUT_SIZE, INPUT_SIZE)
         
-        // 2. Ejecutar inferencia
-        val outputLocations = Array(1) { Array(10) { FloatArray(4) } }  // [batch, num_detections, 4]
-        val outputClasses = Array(1) { FloatArray(10) }                 // [batch, num_detections]
-        val outputScores = Array(1) { FloatArray(10) }                  // [batch, num_detections]
-        val numDetections = FloatArray(1)                                // [batch]
+        // 2. Ejecutar inferencia (SSD MobileNetv2 estilo)
+        val outputLocations = Array(1) { Array(NUM_DETECTIONS) { FloatArray(4) } }  // [1, N, 4] (ymin, xmin, ymax, xmax)
+        val outputClasses = Array(1) { FloatArray(NUM_DETECTIONS) }                 // [1, N]
+        val outputScores = Array(1) { FloatArray(NUM_DETECTIONS) }                  // [1, N]
+        val numDetections = FloatArray(1)                                           // [1]
         
-        val outputMap = mapOf(
-            0 to outputLocations,
-            1 to outputClasses,
-            2 to outputScores,
-            3 to numDetections
-        )
+        val outputs: MutableMap<Int, Any> = HashMap()
+        outputs[0] = outputLocations
+        outputs[1] = outputClasses
+        outputs[2] = outputScores
+        outputs[3] = numDetections
         
-        detectorInterpreter?.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputMap)
+        detectorInterpreter?.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
         
         // 3. Procesar resultados
         val detectedSocks = mutableListOf<Sock>()
-        val numDet = numDetections[0].toInt()
-        
-        for (i in 0 until numDet) {
+        val detCount = numDetections.getOrNull(0)?.toInt() ?: NUM_DETECTIONS
+        for (i in 0 until detCount.coerceAtMost(NUM_DETECTIONS)) {
             val score = outputScores[0][i]
+            if (score < MIN_CONFIDENCE) continue
+            val box = outputLocations[0][i]
+            // Desnormalizar usando frame
+            val top = (box[0] * frameHeight)
+            val left = (box[1] * frameWidth)
+            val bottom = (box[2] * frameHeight)
+            val right = (box[3] * frameWidth)
             
-            if (score >= MIN_CONFIDENCE) {
-                val location = outputLocations[0][i]
-                
-                // Convertir coordenadas normalizadas a píxeles
-                val boundingBox = RectF(
-                    location[1] * frameWidth,  // left
-                    location[0] * frameHeight, // top
-                    location[3] * frameWidth,  // right
-                    location[2] * frameHeight  // bottom
+            val boundingBox = RectF(
+                left.coerceIn(0f, frameWidth.toFloat()),
+                top.coerceIn(0f, frameHeight.toFloat()),
+                right.coerceIn(0f, frameWidth.toFloat()),
+                bottom.coerceIn(0f, frameHeight.toFloat())
+            )
+            if (boundingBox.width() < 1f || boundingBox.height() < 1f) continue
+            
+            val sockBitmap = extractRegion(bitmap, boundingBox)
+            val dominantColor = extractDominantColor(sockBitmap)
+            
+            detectedSocks.add(
+                Sock(
+                    id = UUID.randomUUID().toString(),
+                    boundingBox = RectF(
+                        boundingBox.left / frameWidth,
+                        boundingBox.top / frameHeight,
+                        boundingBox.right / frameWidth,
+                        boundingBox.bottom / frameHeight
+                    ),
+                    dominantColor = dominantColor,
+                    colorName = getColorName(dominantColor),
+                    confidence = score,
+                    bitmap = createThumbnail(sockBitmap)
                 )
-                
-                // Extraer región de la imagen
-                val sockBitmap = extractRegion(bitmap, boundingBox)
-                
-                // Analizar color dominante
-                val dominantColor = extractDominantColor(sockBitmap)
-                
-                detectedSocks.add(
-                    Sock(
-                        id = UUID.randomUUID().toString(),
-                        boundingBox = boundingBox,
-                        dominantColor = dominantColor,
-                        colorName = getColorName(dominantColor),
-                        confidence = score,
-                        bitmap = sockBitmap
-                    )
-                )
-            }
+            )
         }
-        */
-        
-        // Placeholder: retornar lista vacía por ahora
-        val detectedSocks = emptyList<Sock>()
         
         println("🤖 [MLSockDetector] Medias detectadas: ${detectedSocks.size}")
         
@@ -171,26 +184,18 @@ class MLSockDetector(private val context: Context) {
         val pairs = mutableListOf<SockPair>()
         val usedSocks = mutableSetOf<String>()
         
-        // TODO: Implementar emparejamiento con modelo ML
-        /*
         for (i in socks.indices) {
             if (usedSocks.contains(socks[i].id)) continue
-            
             var bestMatch: Sock? = null
             var bestScore = 0f
-            
             for (j in i + 1 until socks.size) {
                 if (usedSocks.contains(socks[j].id)) continue
-                
-                // Usar modelo de similitud para calcular score
                 val similarity = calculateSimilarityWithML(socks[i], socks[j])
-                
                 if (similarity > bestScore && similarity > 0.7f) {
                     bestScore = similarity
                     bestMatch = socks[j]
                 }
             }
-            
             if (bestMatch != null) {
                 pairs.add(
                     SockPair(
@@ -204,7 +209,6 @@ class MLSockDetector(private val context: Context) {
                 usedSocks.add(bestMatch.id)
             }
         }
-        */
         
         return pairs
     }
@@ -213,55 +217,49 @@ class MLSockDetector(private val context: Context) {
      * Calcula similitud entre dos medias usando el modelo ML.
      */
     private fun calculateSimilarityWithML(sock1: Sock, sock2: Sock): Float {
-        // TODO: Implementar inferencia con modelo de similitud
-        /*
         val embedding1 = extractEmbedding(sock1.bitmap)
         val embedding2 = extractEmbedding(sock2.bitmap)
-        
-        // Calcular similitud coseno
+        if (embedding1.isEmpty() || embedding2.isEmpty()) return 0f
         return cosineSimilarity(embedding1, embedding2)
-        */
-        
-        return 0f
     }
     
     /**
      * Extrae embedding de una imagen usando el modelo.
      */
     private fun extractEmbedding(bitmap: Bitmap?): FloatArray {
-        // TODO: Implementar extracción de embeddings
-        /*
-        if (bitmap == null) return FloatArray(128)
-        
-        val inputBitmap = Bitmap.createScaledBitmap(bitmap, 64, 64, true)
-        val inputBuffer = preprocessImage(inputBitmap)
-        val outputBuffer = Array(1) { FloatArray(128) }
-        
-        matcherInterpreter?.run(inputBuffer, outputBuffer)
-        
-        return outputBuffer[0]
-        */
-        
-        return FloatArray(128)
+        val interpreter = matcherInterpreter ?: return FloatArray(0)
+        if (bitmap == null || bitmap.isRecycled) return FloatArray(0)
+        val resized = Bitmap.createScaledBitmap(bitmap, MATCHER_INPUT_SIZE, MATCHER_INPUT_SIZE, true)
+        val input = preprocessImageRGB(resized, MATCHER_INPUT_SIZE, MATCHER_INPUT_SIZE)
+        val output = Array(1) { FloatArray(EMBEDDING_SIZE) }
+        interpreter.run(input, output)
+        return l2Normalize(output[0])
     }
     
     /**
      * Obtiene el nombre del color dominante (helper method).
      */
     private fun getColorName(color: Int): String {
-        // Implementación simple - debería usar HSV
-        return "Unknown"
+        val hsv = FloatArray(3)
+        Color.colorToHSV(color, hsv)
+        return when {
+            hsv[0] < 15 || hsv[0] > 345 -> "Rojo"
+            hsv[0] < 45 -> "Naranja"
+            hsv[0] < 75 -> "Amarillo"
+            hsv[0] < 165 -> "Verde"
+            hsv[0] < 240 -> "Azul"
+            hsv[0] < 285 -> "Violeta"
+            else -> "Rosa"
+        }
     }
     
     /**
      * Libera recursos de los modelos.
      */
     fun close() {
-        // TODO: Cerrar intérpretes
-        /*
         detectorInterpreter?.close()
         matcherInterpreter?.close()
-        */
+        gpuDelegate?.close()
         isInitialized = false
     }
     
@@ -269,17 +267,96 @@ class MLSockDetector(private val context: Context) {
      * Verifica si los modelos están disponibles.
      */
     fun areModelsAvailable(): Boolean {
-        // TODO: Verificar que los archivos .tflite existan en assets
-        /*
-        try {
+        return try {
             context.assets.open(DETECTOR_MODEL_PATH).close()
             context.assets.open(MATCHER_MODEL_PATH).close()
-            return true
+            true
         } catch (e: Exception) {
-            return false
+            false
         }
-        */
-        return false
+    }
+
+    // ---- Helpers de carga/preprocesamiento ----
+
+    private fun loadModelFromAssets(assetPath: String): MappedByteBuffer {
+        val assetFileDescriptor = context.assets.openFd(assetPath)
+        val inputStream = assetFileDescriptor.createInputStream()
+        val fileChannel = inputStream.channel
+        val startOffset = assetFileDescriptor.startOffset
+        val declaredLength = assetFileDescriptor.declaredLength
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
+    }
+
+    private fun preprocessImageRGB(bitmap: Bitmap, width: Int, height: Int): ByteBuffer {
+        val inputBuffer = ByteBuffer.allocateDirect(4 * width * height * 3)
+        inputBuffer.order(ByteOrder.nativeOrder())
+        val intValues = IntArray(width * height)
+        bitmap.getPixels(intValues, 0, width, 0, 0, width, height)
+        var pixelIndex = 0
+        // Normalización a [0,1]
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val pixel = intValues[pixelIndex++]
+                val r = (pixel shr 16 and 0xFF) / 255f
+                val g = (pixel shr 8 and 0xFF) / 255f
+                val b = (pixel and 0xFF) / 255f
+                inputBuffer.putFloat(r)
+                inputBuffer.putFloat(g)
+                inputBuffer.putFloat(b)
+            }
+        }
+        inputBuffer.rewind()
+        return inputBuffer
+    }
+
+    private fun extractRegion(source: Bitmap, box: RectF): Bitmap {
+        val left = box.left.coerceAtLeast(0f).toInt()
+        val top = box.top.coerceAtLeast(0f).toInt()
+        val width = (box.width()).toInt().coerceAtLeast(1)
+        val height = (box.height()).toInt().coerceAtLeast(1)
+        val safeWidth = if (left + width > source.width) source.width - left else width
+        val safeHeight = if (top + height > source.height) source.height - top else height
+        return Bitmap.createBitmap(source, left, top, safeWidth.coerceAtLeast(1), safeHeight.coerceAtLeast(1))
+    }
+
+    private fun extractDominantColor(bitmap: Bitmap): Int {
+        return try {
+            val palette = Palette.from(bitmap).generate()
+            palette.getDominantColor(Color.GRAY)
+        } catch (e: Exception) {
+            Color.GRAY
+        }
+    }
+
+    private fun createThumbnail(bitmap: Bitmap): Bitmap? {
+        return try {
+            Bitmap.createScaledBitmap(bitmap, 64, 64, true)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
+        var dot = 0f
+        var normA = 0f
+        var normB = 0f
+        for (i in a.indices) {
+            dot += a[i] * b.getOrElse(i) { 0f }
+            normA += a[i] * a[i]
+            val bv = b.getOrElse(i) { 0f }
+            normB += bv * bv
+        }
+        val denom = (kotlin.math.sqrt(normA.toDouble()) * kotlin.math.sqrt(normB.toDouble())).toFloat()
+        return if (denom > 0f) (dot / denom).coerceIn(0f, 1f) else 0f
+    }
+
+    private fun l2Normalize(vec: FloatArray): FloatArray {
+        var sum = 0f
+        for (v in vec) sum += v * v
+        val norm = kotlin.math.sqrt(sum.toDouble()).toFloat()
+        if (norm <= 0f) return vec
+        for (i in vec.indices) vec[i] /= norm
+        return vec
     }
 }
 
@@ -309,5 +386,6 @@ class MLSockDetector(private val context: Context) {
  *     }
  * }
  */
+
 
 
